@@ -627,14 +627,16 @@ if __name__ == '__main__':
     import webbrowser
     from threading import Timer
     
+    port = int(os.environ.get("PORT", 5001))
+    
     def open_browser():
-        webbrowser.open_new("http://127.0.0.1:5001")
+        webbrowser.open_new(f"http://127.0.0.1:{port}")
         
     init_db()
     scan_and_load_excel_files()
     
-    # Only open browser on main process startup
-    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    # Only open browser on main process startup locally (not on Render cloud)
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true" and not os.environ.get("PORT"):
         Timer(1.5, open_browser).start()
         
-    app.run(host='127.0.0.1', port=5001, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=True)
