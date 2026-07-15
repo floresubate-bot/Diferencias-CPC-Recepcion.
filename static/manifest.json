@@ -1,0 +1,16 @@
+{
+  "name": "Diferencias CPC vs Recepción",
+  "short_name": "CPC vs Rec",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff5f7",
+  "theme_color": "#db2777",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/static/flower_banner.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}

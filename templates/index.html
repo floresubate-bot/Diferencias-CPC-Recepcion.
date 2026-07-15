@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Diferencias CPC vs Recepción</title>
+    
+    <!-- PWA Metadata -->
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <meta name="theme-color" content="#db2777">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CPC vs Rec">
+    
+    <!-- Premium Fonts - served using Google Font CDN, cached offline by Service Worker -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Offline Fonts & Icons (Downloaded locally) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/all.min.css') }}">
+    
+    <!-- Local JS Libraries (Downloaded locally for 100% offline support) -->
+    <script src="{{ url_for('static', filename='chart.js') }}"></script>
+    <script src="{{ url_for('static', filename='chartjs-plugin-datalabels.js') }}"></script>
+    <script src="{{ url_for('static', filename='html2canvas.min.js') }}"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header class="dashboard-header">
+        <div class="header-banner">
+            <img src="{{ url_for('static', filename='flower_banner.jpg') }}" alt="Flower Banner" class="banner-img">
+            <div class="banner-overlay"></div>
+        </div>
+        
+        <div class="header-content">
+            <div class="logo-container">
+                <i class="fa-solid fa-spa dashboard-icon"></i>
+                <div>
+                    <h1>Diferencias CPC vs Recepción</h1>
+                    <p class="subtitle">Análisis de Planificación de Pilotos vs Recepción Real</p>
+                </div>
+            </div>
+            
+            <div class="filters-container">
+                <div class="filter-group">
+                    <label for="semana-select"><i class="fa-solid fa-calendar-week"></i> Semana</label>
+                    <select id="semana-select">
+                        <option value="">Cargando...</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="flor-select"><i class="fa-solid fa-seedling"></i> Flor</label>
+                    <select id="flor-select">
+                        <option value="">Cargando...</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="variedad-select"><i class="fa-solid fa-tags"></i> Variedad</label>
+                    <select id="variedad-select">
+                        <option value="todas">Todas</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="bloque-select"><i class="fa-solid fa-shapes"></i> Bloque</label>
+                    <select id="bloque-select">
+                        <option value="todos">Todos</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Stats summary row -->
+    <section class="stats-summary-row">
+        <div class="stat-card">
+            <div class="stat-icon"><i class="fa-solid fa-clipboard-list"></i></div>
+            <div class="stat-info">
+                <span class="stat-label">Total Pilotos (CPC)</span>
+                <span id="stat-pilotos" class="stat-value">-</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon"><i class="fa-solid fa-truck-ramp-box"></i></div>
+            <div class="stat-info">
+                <span class="stat-label">Total Recepción</span>
+                <span id="stat-recepcion" class="stat-value">-</span>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon"><i class="fa-solid fa-percent"></i></div>
+            <div class="stat-info">
+                <span class="stat-label">% Cumplimiento Total</span>
+                <span id="stat-cumplimiento" class="stat-value">-</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- Upload Section -->
+    <section class="upload-section">
+        <div id="drop-zone" class="drop-zone">
+            <i class="fa-solid fa-cloud-arrow-up upload-icon"></i>
+            <div class="drop-zone-text">
+                <span class="highlight">Arrastra tus archivos de Excel aquí</span> o haz clic para seleccionarlos
+            </div>
+            <input type="file" id="file-input" multiple accept=".xlsx, .xls" style="display: none;">
+            <div class="upload-tips">Formatos aceptados: .xlsx, .xls (Archivos individuales o consolidados)</div>
+        </div>
+        <div id="upload-status" class="upload-status hidden">
+            <i class="fa-solid fa-circle-notch fa-spin"></i> <span id="status-text">Subiendo archivos...</span>
+        </div>
+    </section>
+
+    <!-- Navigation Tabs -->
+    <nav class="dashboard-tabs">
+        <button class="tab-btn active" data-tab="tab-dashboard">
+            <i class="fa-solid fa-chart-line"></i> Dashboard Principal
+        </button>
+        <button class="tab-btn" data-tab="tab-history">
+            <i class="fa-solid fa-history"></i> Histórico Consolidado
+        </button>
+        <button class="tab-btn" data-tab="tab-deviations">
+            <i class="fa-solid fa-triangle-exclamation"></i> Reporte de Desviaciones
+        </button>
+    </nav>
+
+    <main class="dashboard-content">
+        
+        <!-- TAB 1: Main Dashboard Grid -->
+        <div id="tab-dashboard" class="tab-pane active">
+            <!-- Share dashboard bar -->
+            <div class="share-bar">
+                <button class="btn-share-main" onclick="shareDashboardSummary()">
+                    <i class="fa-brands fa-whatsapp"></i> Compartir Resumen Semanal (WhatsApp)
+                </button>
+            </div>
+            
+            <div class="dashboard-grid">
+                
+                <!-- Left Panel: Detailed Pivot Table -->
+                <section class="panel panel-left card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-table-list"></i> Detalle Diario por Bloque</h2>
+                        <button class="btn-share" onclick="shareElement('detail-table-card', 'Detalle diario de producción y recepción de flores')">
+                            <i class="fa-brands fa-whatsapp"></i> Copiar Tabla
+                        </button>
+                    </div>
+                    <div id="detail-table-card" class="capture-container">
+                        <div class="table-container">
+                            <table id="detail-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 30%">Fecha / Bloque</th>
+                                        <th style="width: 15%; text-align: right;">Pilotos</th>
+                                        <th style="width: 15%; text-align: right;">Recepción</th>
+                                        <th style="width: 20%; text-align: right;">Diferencia</th>
+                                        <th style="width: 20%; text-align: right;">% Cumplimiento</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="detail-table-body">
+                                    <tr>
+                                        <td colspan="5" class="empty-state">Selecciona Semana, Flor y Variedad</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Wrapper for sharing Acumulado + Areas + Charts together -->
+                <div id="dashboard-summary-wrapper" class="dashboard-summary-wrapper capture-container">
+                    
+                    <!-- Middle Panel: Summaries -->
+                    <section class="panel panel-middle">
+                        <!-- Acumulado Table -->
+                        <div class="card summary-card">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-chart-pie"></i> Acumulado Semanal</h2>
+                                <button class="btn-share-mini" onclick="shareElement('acumulado-table-card', 'Acumulado semanal de flores por bloque')">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                            <div id="acumulado-table-card" class="capture-container">
+                                <div class="table-container">
+                                    <table id="acumulado-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Bloque</th>
+                                                <th style="text-align: right;">Pilotos</th>
+                                                <th style="text-align: right;">Recepción</th>
+                                                <th style="text-align: right;">% Cumplimiento</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="acumulado-table-body">
+                                            <tr>
+                                                <td colspan="4" class="empty-state">Sin datos</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Cumplimiento por Area Table -->
+                        <div class="card summary-card" style="margin-top: 24px;">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-layer-group"></i> Cumplimiento por Área</h2>
+                                <button class="btn-share-mini" onclick="shareElement('areas-table-card', 'Cumplimiento por áreas operativas')">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                            <div id="areas-table-card" class="capture-container">
+                                <div class="table-container">
+                                    <table id="areas-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Área</th>
+                                                <th style="text-align: right;">Pilotos</th>
+                                                <th style="text-align: right;">Recepción</th>
+                                                <th style="text-align: right;">% Cumplimiento</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="areas-table-body">
+                                            <tr>
+                                                <td colspan="4" class="empty-state">Sin datos</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Estado de Bloques (Totalidad vs Cumplidos) -->
+                        <div class="card summary-card" style="margin-top: 24px;">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-shapes"></i> Estado de Bloques</h2>
+                                <button class="btn-share-mini" onclick="shareElement('blocks-compliance-card', 'Estado de cumplimiento de bloques')">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                            <div id="blocks-compliance-card" class="capture-container">
+                                <div class="blocks-compliance-lists">
+                                    <div class="compliance-list-group group-green">
+                                        <h4><i class="fa-solid fa-circle-check"></i> Cumplieron (95% - 110%)</h4>
+                                        <div id="blocks-compliant-list" class="blocks-badges-list">
+                                            <!-- Green badges go here -->
+                                        </div>
+                                    </div>
+                                    <div class="compliance-list-group group-red" style="margin-top: 15px;">
+                                        <h4><i class="fa-solid fa-triangle-exclamation"></i> No Cumplieron (&lt;95% o &gt;110%)</h4>
+                                        <div id="blocks-failed-list" class="blocks-badges-list">
+                                            <!-- Red badges go here -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Right Panel: Charts -->
+                    <section class="panel panel-right">
+                        <!-- Chart 1 -->
+                        <div class="card chart-card">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-chart-simple"></i> % Cumplimiento por Bloque</h2>
+                                <button class="btn-share-mini" onclick="shareElement('blocks-chart-card', 'Gráfico de cumplimiento de flores por bloque')">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                            <div id="blocks-chart-card" class="capture-container chart-wrapper">
+                                <canvas id="blocks-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Chart 2 -->
+                        <div class="card chart-card" style="margin-top: 24px;">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-chart-column"></i> % Cumplimiento por Área</h2>
+                                <button class="btn-share-mini" onclick="shareElement('areas-chart-card', 'Gráfico de cumplimiento de flores por área')">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                            <div id="areas-chart-card" class="capture-container chart-wrapper">
+                                <canvas id="areas-chart"></canvas>
+                        </div>
+                        
+                        <!-- Card: Resumen de Efectividad (Bloques y Áreas) -->
+                        <div class="card summary-card" style="margin-top: 24px;">
+                            <div class="panel-header">
+                                <h2><i class="fa-solid fa-circle-check"></i> Resumen de Efectividad</h2>
+                                <button class="btn-share-mini" onclick="shareElement('compliance-summary-card', 'Resumen de efectividad de bloques y áreas')">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                            <div id="compliance-summary-card" class="capture-container" style="background: var(--panel-bg) !important; padding: 20px;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                                    
+                                    <!-- Blocks Effectiveness Box -->
+                                    <div class="effect-box" style="border: 1px solid var(--border-color); border-radius: var(--border-radius); padding: 18px; display: flex; align-items: center; gap: 16px; background: #fff5f7;">
+                                        <div class="effect-icon" style="font-size: 1.8rem; color: var(--primary-color); background: var(--primary-light); padding: 12px; border-radius: 12px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-circle-check"></i></div>
+                                        <div style="display: flex; flex-direction: column;">
+                                            <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Efectividad Bloques</span>
+                                            <span id="comp-summary-bloq-percent" style="font-size: 1.6rem; font-weight: 700; color: #1e293b; line-height: 1.2;">-%</span>
+                                            <span id="comp-summary-bloq-desc" style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">- de - bloques cumplieron</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Areas Effectiveness Box -->
+                                    <div class="effect-box" style="border: 1px solid var(--border-color); border-radius: var(--border-radius); padding: 18px; display: flex; align-items: center; gap: 16px; background: #f0fdf4;">
+                                        <div class="effect-icon" style="font-size: 1.8rem; color: var(--comp-green); background: var(--comp-green-light); padding: 12px; border-radius: 12px; display: flex; align-items: center; justify-content: center;"><i class="fa-solid fa-layer-group"></i></div>
+                                        <div style="display: flex; flex-direction: column;">
+                                            <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Efectividad Áreas</span>
+                                            <span id="comp-summary-area-percent" style="font-size: 1.6rem; font-weight: 700; color: #1e293b; line-height: 1.2;">-%</span>
+                                            <span id="comp-summary-area-desc" style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">- de - áreas cumplieron</span>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                    
+                </div> <!-- End of dashboard-summary-wrapper -->
+
+            </div>
+        </div>
+
+        <!-- TAB 2: Historical Consolidation -->
+        <div id="tab-history" class="tab-pane">
+            <div class="history-grid">
+                <!-- Trend Chart -->
+                <div class="card chart-full-card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-chart-line"></i> Tendencia de Cumplimiento Histórico</h2>
+                        <button class="btn-share" onclick="shareElement('history-chart-card', 'Tendencia histórica de cumplimiento de flores')">
+                            <i class="fa-brands fa-whatsapp"></i> Copiar Gráfico
+                        </button>
+                    </div>
+                    <div id="history-chart-card" class="capture-container chart-full-wrapper">
+                        <canvas id="history-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- History Table -->
+                <div class="card history-table-card">
+                    <div class="panel-header">
+                        <h2><i class="fa-solid fa-table-cells"></i> Consolidado Histórico por Semana</h2>
+                    </div>
+                    <div class="table-container">
+                        <table id="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Semana</th>
+                                    <th style="text-align: right;">Pilotos Totales</th>
+                                    <th style="text-align: right;">Recepción Total</th>
+                                    <th style="text-align: right;">Diferencia</th>
+                                    <th style="text-align: right;">% Cumplimiento</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-table-body">
+                                <tr>
+                                    <td colspan="5" class="empty-state">Cargando histórico...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: Deviation Report -->
+        <div id="tab-deviations" class="tab-pane">
+            <div class="deviations-header">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                    <div>
+                        <h2><i class="fa-solid fa-triangle-exclamation"></i> Análisis de Bloques Desviados (Grandes Diferencias)</h2>
+                        <p>Se listan los bloques fuera del margen de error permitido (mínimo 95%, máximo 110%), agrupados por áreas operativas.</p>
+                    </div>
+                    <button class="btn-share-main" onclick="shareAllDeviations()">
+                        <i class="fa-brands fa-whatsapp"></i> Compartir Reporte Completo (WhatsApp)
+                    </button>
+                </div>
+            </div>
+            
+            <div id="deviations-container" class="deviations-grid">
+                <div class="empty-state">No hay bloques con desviaciones críticas detectadas en esta semana.</div>
+            </div>
+        </div>
+
+    </main>
+
+    <footer class="dashboard-footer">
+        <p>&copy; 2026 Diferencias CPC vs Recepción. Todos los derechos reservados.</p>
+    </footer>
+
+    <!-- Toast Notification for Copy success -->
+    <div id="toast" class="toast hidden">
+        <i class="fa-solid fa-circle-check"></i> <span id="toast-message">Imagen copiada al portapapeles</span>
+    </div>
+
+    <!-- WhatsApp Desktop Instructions Modal -->
+    <div id="whatsapp-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fa-brands fa-whatsapp"></i> Instrucciones de Compartido</h3>
+                <button class="modal-close" onclick="closeWhatsappModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-tip"><i class="fa-solid fa-circle-check"></i> El texto del reporte ya fue copiado y WhatsApp se abrirá en tu navegador.</p>
+                <div class="instruction-box">
+                    <p><strong>Para enviar la captura de imagen:</strong></p>
+                    <ol>
+                        <li>Selecciona o abre el chat de tu contacto en WhatsApp.</li>
+                        <li>Haz clic en el cuadro de texto donde escribes tus mensajes.</li>
+                        <li>Presiona las teclas <strong>Ctrl + V</strong> (o clic derecho -> Pegar) para pegar la captura de pantalla generada.</li>
+                        <li>Presiona el botón de **Enviar**.</li>
+                    </ol>
+                </div>
+                <button class="modal-btn-confirm" onclick="closeWhatsappModal()">¡Entendido!</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- PWA Registration Script -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register("{{ url_for('static', filename='service-worker.js') }}")
+                    .then(reg => console.log('[PWA] Service Worker registrado exitosamente.', reg.scope))
+                    .catch(err => console.log('[PWA] Error al registrar Service Worker.', err));
+            });
+        }
+    </script>
+
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
