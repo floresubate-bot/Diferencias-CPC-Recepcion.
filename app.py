@@ -81,57 +81,121 @@ def init_db():
         )
     """)
     
+    # Migration: check if source_file column is missing and add it
+    cursor.execute("PRAGMA table_info(records)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'source_file' not in columns:
+        print("Migrating database: Adding missing column 'source_file'...")
+        cursor.execute("ALTER TABLE records ADD COLUMN source_file TEXT")
+        
     conn.commit()
     conn.close()
 
 def load_excel_to_sqlite(file_path):
     print(f"Loading {file_path}...")
-    try:
-        xls = pd.ExcelFile(file_path)
+    db_records = []
+    skipped_sheets = {}
+    
+    with pd.ExcelFile(file_path) as xls:
         sheet_names = xls.sheet_names
         
-        db_records = []
-        
         for sheet in sheet_names:
-            df = pd.read_excel(file_path, sheet_name=sheet)
+            # Read raw excel without assuming headers to scan for the actual header row
+            df_raw = pd.read_excel(xls, sheet_name=sheet, header=None)
             
-            # Clean column names to find matches
-            df.columns = [str(c).strip() for c in df.columns]
-            
-            col_mapping = {}
-            for col in df.columns:
-                c_low = col.lower()
+            if df_raw.empty:
+                skipped_sheets[sheet] = ["La hoja está vacía"]
+                continue
                 
-                # Check CPC differences FIRST before general cpc
-                if 'fecha' in c_low or 'date' in c_low:
-                    col_mapping['fecha'] = col
-                elif 'semana' in c_low or 'week' in c_low:
-                    col_mapping['semana'] = col
-                elif 'flor' in c_low or 'flower' in c_low:
-                    col_mapping['flor'] = col
-                elif 'variedad' in c_low or 'variety' in c_low:
-                    col_mapping['variedad'] = col
-                elif 'bloque' in c_low or 'block' in c_low:
-                    col_mapping['bloque'] = col
-                elif 'color' in c_low:
-                    col_mapping['color'] = col
-                elif 'difference' in c_low or 'diff' in c_low:
-                    col_mapping['cpc_reception_diff'] = col
-                elif 'cpc' in c_low or 'pilotos' in c_low:
-                    col_mapping['cpc'] = col
-                elif 'recep' in c_low:
-                    col_mapping['recepcion'] = col
+            # Scan first 15 rows to find the headers row
+            header_row_idx = None
+            col_mapping = {}
+            max_matches = 0
+            best_idx = None
+            best_mapping = {}
             
-            # Ensure mandatory fields are present
+            for idx in range(min(15, len(df_raw))):
+                temp_mapping = {}
+                for col_pos, val in enumerate(df_raw.iloc[idx]):
+                    if pd.isna(val):
+                        continue
+                    v_str = str(val).strip()
+                    c_low = v_str.lower()
+                    
+                    if 'fecha' in c_low or 'date' in c_low:
+                        temp_mapping['fecha'] = (col_pos, v_str)
+                    elif 'semana' in c_low or 'week' in c_low:
+                        temp_mapping['semana'] = (col_pos, v_str)
+                    elif 'flor' in c_low or 'flower' in c_low:
+                        temp_mapping['flor'] = (col_pos, v_str)
+                    elif 'variedad' in c_low or 'variety' in c_low:
+                        temp_mapping['variedad'] = (col_pos, v_str)
+                    elif 'bloque' in c_low or 'block' in c_low:
+                        temp_mapping['bloque'] = (col_pos, v_str)
+                    elif 'color' in c_low:
+                        temp_mapping['color'] = (col_pos, v_str)
+                    elif 'difference' in c_low or 'diff' in c_low:
+                        temp_mapping['cpc_reception_diff'] = (col_pos, v_str)
+                    elif 'cpc' in c_low or 'pilotos' in c_low:
+                        temp_mapping['cpc'] = (col_pos, v_str)
+                    elif 'recep' in c_low:
+                        temp_mapping['recepcion'] = (col_pos, v_str)
+                
+                required = ['fecha', 'semana', 'flor', 'bloque', 'cpc', 'recepcion']
+                matches = sum(1 for r in required if r in temp_mapping)
+                if matches > max_matches:
+                    max_matches = matches
+                    best_idx = idx
+                    best_mapping = temp_mapping
+                    
+            # We require at least 4 matches to confidently declare a row as the header
+            if max_matches >= 4:
+                header_row_idx = best_idx
+                col_mapping = best_mapping
+                
+                # Slice and assign headers
+                headers = [str(h).strip() if pd.notna(h) else f"col_{c_pos}" for c_pos, h in enumerate(df_raw.iloc[header_row_idx].tolist())]
+                df = df_raw.iloc[header_row_idx + 1:].copy()
+                df.columns = headers
+            else:
+                # Fallback: assume first row is the header
+                df = pd.read_excel(xls, sheet_name=sheet)
+                df.columns = [str(c).strip() for c in df.columns]
+                
+                # Repopulate col_mapping for the fallback
+                col_mapping = {}
+                for col in df.columns:
+                    c_low = col.lower()
+                    if 'fecha' in c_low or 'date' in c_low:
+                        col_mapping['fecha'] = (None, col)
+                    elif 'semana' in c_low or 'week' in c_low:
+                        col_mapping['semana'] = (None, col)
+                    elif 'flor' in c_low or 'flower' in c_low:
+                        col_mapping['flor'] = (None, col)
+                    elif 'variedad' in c_low or 'variety' in c_low:
+                        col_mapping['variedad'] = (None, col)
+                    elif 'bloque' in c_low or 'block' in c_low:
+                        col_mapping['bloque'] = (None, col)
+                    elif 'color' in c_low:
+                        col_mapping['color'] = (None, col)
+                    elif 'difference' in c_low or 'diff' in c_low:
+                        col_mapping['cpc_reception_diff'] = (None, col)
+                    elif 'cpc' in c_low or 'pilotos' in c_low:
+                        col_mapping['cpc'] = (None, col)
+                    elif 'recep' in c_low:
+                        col_mapping['recepcion'] = (None, col)
+                        
+            # Verify required columns are present
             required = ['fecha', 'semana', 'flor', 'bloque', 'cpc', 'recepcion']
             missing = [r for r in required if r not in col_mapping]
             if missing:
-                print(f"  Skipping sheet '{sheet}': missing columns {missing}")
+                skipped_sheets[sheet] = missing
                 continue
                 
-            # Keep and rename columns
-            rename_dict = {col_mapping[k]: k for k in col_mapping}
-            df_cleaned = df[list(col_mapping.values())].rename(columns=rename_dict)
+            # Select and rename columns
+            rename_dict = {col_mapping[k][1]: k for k in col_mapping}
+            cols_to_keep = [col_mapping[k][1] for k in col_mapping]
+            df_cleaned = df[cols_to_keep].rename(columns=rename_dict)
             
             # Add fallback fields if missing
             if 'cpc_reception_diff' not in df_cleaned.columns:
@@ -160,32 +224,31 @@ def load_excel_to_sqlite(file_path):
             df_cleaned['semana'] = df_cleaned['semana'].astype(int)
             
             df_cleaned['source_file'] = os.path.basename(file_path)
-            
             db_records.append(df_cleaned)
             
-        if db_records:
-            final_df = pd.concat(db_records, ignore_index=True)
+    if not db_records:
+        if skipped_sheets:
+            details = "; ".join([f"Hoja '{s}' le faltan columnas: {m}" for s, m in skipped_sheets.items()])
+            raise ValueError(f"No se encontró ninguna hoja de Excel válida. Detalles: {details}")
+        else:
+            raise ValueError("El archivo Excel está vacío o no contiene hojas legibles.")
             
-            conn = sqlite3.connect(DB_PATH)
-            # Insert or replace duplicates to keep history unified
-            for _, row in final_df.iterrows():
-                conn.execute("""
-                    INSERT OR REPLACE INTO records 
-                    (fecha, semana, flor, variedad, bloque, color, cpc, recepcion, cpc_reception_diff, source_file)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    row['fecha'], int(row['semana']), row['flor'], row['variedad'],
-                    row['bloque'], row['color'], float(row['cpc']), float(row['recepcion']),
-                    float(row['cpc_reception_diff']), row['source_file']
-                ))
-            conn.commit()
-            conn.close()
-            print(f"  Loaded {len(final_df)} records successfully.")
-            
-    except Exception as e:
-        print(f"  Error loading {file_path}: {e}")
-        import traceback
-        traceback.print_exc()
+    final_df = pd.concat(db_records, ignore_index=True)
+    
+    conn = sqlite3.connect(DB_PATH)
+    for _, row in final_df.iterrows():
+        conn.execute("""
+            INSERT OR REPLACE INTO records 
+            (fecha, semana, flor, variedad, bloque, color, cpc, recepcion, cpc_reception_diff, source_file)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            row['fecha'], int(row['semana']), row['flor'], row['variedad'],
+            row['bloque'], row['color'], float(row['cpc']), float(row['recepcion']),
+            float(row['cpc_reception_diff']), row['source_file']
+        ))
+    conn.commit()
+    conn.close()
+    print(f"  Loaded {len(final_df)} records successfully.")
 
 def scan_and_load_excel_files():
     # Scan SOURCE_DIR for Excel files
@@ -269,9 +332,15 @@ def get_report():
                 'totals': {'pilotos': 0, 'recepcion': 0, 'cumplimiento': 0}
             })
             
-        # 1. Detailed Pivot Table Rows
+        # 1. Detailed Pivot Table Rows - consolidated by date and block
+        df_detail = df.groupby(['fecha', 'bloque']).agg({
+            'cpc': 'sum',
+            'recepcion': 'sum',
+            'cpc_reception_diff': 'sum'
+        }).reset_index()
+        
         detail_data = []
-        for _, row in df.iterrows():
+        for _, row in df_detail.iterrows():
             detail_data.append({
                 'fecha': row['fecha'],
                 'bloque': row['bloque'],
@@ -472,6 +541,7 @@ def get_anomalies():
         }).reset_index()
         
         anomalous_blocks = []
+        total_over_110_blocks = 0
         
         for _, row in df_block.iterrows():
             bloque = row['bloque']
@@ -484,6 +554,9 @@ def get_anomalies():
             compliance = 0.0
             if recepcion > 0:
                 compliance = round((pilotos / recepcion) * 100, 1)
+                
+            if compliance > 110.0:
+                total_over_110_blocks += 1
                 
             area_name = get_area_for_block(bloque)
             
@@ -508,7 +581,8 @@ def get_anomalies():
                     continue
                     
                 v_comp = round((v_pil / v_rec) * 100) if v_rec > 0 else 0
-                if v_comp < 95 or v_comp > 110:
+                # Incidences are only when compliance is less than 95%
+                if v_comp < 95:
                     variedades_criticas.append({
                         'variedad': v_name,
                         'pilotos': v_pil,
@@ -519,7 +593,7 @@ def get_anomalies():
             
             # Flag block if it has general anomaly OR if it is compliant but has internal critical varieties
             if is_general_anomaly or (95.0 <= compliance <= 110.0 and len(variedades_criticas) > 0):
-                # 1. Critical Days (compliance < 95% or > 110%)
+                # 1. Critical Days (compliance < 95% only as requested)
                 df_day = df_b.groupby('fecha').agg({'cpc': 'sum', 'recepcion': 'sum'}).reset_index()
                 critical_days_list = []
                 for _, day_row in df_day.iterrows():
@@ -531,7 +605,7 @@ def get_anomalies():
                         continue
                         
                     d_comp = round((d_pil / d_rec) * 100) if d_rec > 0 else 0
-                    if d_comp < 95 or d_comp > 110:
+                    if d_comp < 95:
                         parts = d_date.split('-')
                         d_date_formatted = f"{int(parts[2])}/{int(parts[1])}/{parts[0]}" if len(parts) == 3 else d_date
                         d_diff = d_pil - d_rec
@@ -543,25 +617,32 @@ def get_anomalies():
                             'cumplimiento': d_comp
                         })
                 
-                # 2. top varieties (general list for the whole block)
+                # 2. top varieties (general list for the whole block) - filtered to only show those < 95%
                 df_var_all = df_b.groupby('variedad').agg({'cpc': 'sum', 'recepcion': 'sum'}).reset_index()
                 df_var_all['diff'] = df_var_all['cpc'] - df_var_all['recepcion']
                 df_var_all['diff_abs'] = df_var_all['diff'].abs()
-                top_vars = df_var_all.sort_values(by='diff_abs', ascending=False).head(3)
+                top_vars_sorted = df_var_all.sort_values(by='diff_abs', ascending=False)
                 vars_list = []
-                for _, vr in top_vars.iterrows():
+                for _, vr in top_vars_sorted.iterrows():
                     v_name = vr['variedad'] if vr['variedad'] else "Sin variedad"
                     v_pil = float(vr['cpc'])
                     v_rec = float(vr['recepcion'])
                     v_diff = vr['diff']
                     v_comp = round((v_pil / v_rec) * 100) if v_rec > 0 else 0
-                    vars_list.append({
-                        'variedad': v_name,
-                        'pilotos': v_pil,
-                        'recepcion': v_rec,
-                        'diferencia': v_diff,
-                        'cumplimiento': v_comp
-                    })
+                    
+                    if v_pil == 0 and v_rec == 0:
+                        continue
+                        
+                    # Incidences are only when compliance is less than 95%
+                    if v_comp < 95:
+                        vars_list.append({
+                            'variedad': v_name,
+                            'pilotos': v_pil,
+                            'recepcion': v_rec,
+                            'diferencia': v_diff,
+                            'cumplimiento': v_comp
+                        })
+                vars_list = vars_list[:3]
                 
                 tipo_alerta = 'general' if is_general_anomaly else 'interna'
                 
@@ -580,7 +661,10 @@ def get_anomalies():
                     'variedades_criticas': variedades_criticas_sorted
                 })
                 
-        return jsonify({'anomalies': anomalous_blocks})
+        return jsonify({
+            'anomalies': anomalous_blocks,
+            'total_over_110_blocks': total_over_110_blocks
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -639,4 +723,6 @@ if __name__ == '__main__':
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true" and not os.environ.get("PORT"):
         Timer(1.5, open_browser).start()
         
-    app.run(host='0.0.0.0', port=port, debug=True)
+    import sys
+    is_frozen = getattr(sys, 'frozen', False)
+    app.run(host='0.0.0.0', port=port, debug=not is_frozen)
